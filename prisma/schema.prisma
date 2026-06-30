@@ -1,0 +1,111 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+    directUrl = env("DIRECT_URL")
+
+}
+
+model User {
+    id        String      @id  @default(uuid())
+    name      String      
+    email     String      @unique
+    phone     String?
+    password  String
+    role      String      @default("CUSTOMER")
+    createdAt DateTime    @default(now())
+    cart      CartItem[]
+    orders    Order[]   
+    addresses Address[]  
+}
+
+enum Role {
+    CUSTOMER
+    ADMIN
+}
+
+model Product {
+    id          String      @id @default(uuid())
+    name        String
+    brand       String
+    category    String
+    price       Float
+    originalPrice Float?
+    discount    Int         @default(0)
+    isBestseller Boolean    @default(false)
+    flashSaleEndsAt DateTime?
+    unit        String
+    desc        String
+    imageUrl    String?
+    badge       String?
+    rating      Float       @default(0)
+    reviews     Int         @default(0)
+    inStock     Boolean     @default(true)
+    createdAt   DateTime    @default(now())
+    cartItems   CartItem[]
+    orderItems  OrderItem[]
+    
+}
+
+enum Category {
+    SEEDS
+    PESTICIDES
+    INSECTICIDES
+    ORGANIC
+}
+
+model CartItem {
+    id          String  @id @default(uuid())
+    userId      String
+    productId   String
+    quantity    Int     @default(1)
+    user        User    @relation(fields:[userId],references:[id],onDelete:Cascade)
+    product     Product @relation(fields:[productId],references:[id],onDelete: Cascade)
+
+    @@unique([userId, productId])
+}
+
+model Order {
+    id        String     @id @default(uuid())
+    userId    String
+    status    OrderStatus @default(PLACED)
+    totalAmount Float
+    address     String
+    createdAt  DateTime   @default(now())
+    user       User       @relation(fields:[userId],references: [id])
+    items      OrderItem[]
+}
+
+enum OrderStatus {
+    PLACED
+    CONFIRMED
+    SHIPPED
+    DELIVERED
+    CANCELLED
+}
+
+model OrderItem {
+    id          String   @id @default(uuid())
+    orderId     String
+    productId   String
+    quantity    Int
+    price       Float
+    order       Order    @relation(fields:[orderId],references:[id],onDelete: Cascade)
+    product     Product  @relation(fields:[productId],references:[id])
+}
+
+model Address {
+    id          String  @id @default(uuid())
+    userId      String
+    label       String
+    line1       String
+    city        String
+    state       String
+    pincode     String
+
+    user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
