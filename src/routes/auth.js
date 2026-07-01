@@ -9,7 +9,10 @@ const prisma    = require("../config/db");
 const { protect } = require("../middleware/auth");
 
 const router      = express.Router();
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET
+);
 
 // ── Password strength validator ────────────────
 const isStrongPassword = (password) => {
@@ -30,17 +33,29 @@ const generateToken = (user) => {
   );
 };
 
-// ── POST /api/auth/google ──────────────────────
-router.post("/google", async (req, res) => {
+// ── POST /api/auth/google-callback ────────────
+// Receives authorization code from frontend,
+// exchanges it with Google for user info, logs user in.
+router.post("/google-callback", async (req, res) => {
   try {
-    const { credential } = req.body;
+    const { code, redirectUri } = req.body;
 
-    if (!credential) {
-      return res.status(400).json({ success: false, message: "Google credential missing!" });
+    if (!code || !redirectUri) {
+      return res.status(400).json({
+        success: false,
+        message: "Authorization code and redirect URI are required!"
+      });
     }
 
+    // ── Exchange code for tokens ─────────────────
+    const { tokens } = await googleClient.getToken({
+      code,
+      redirect_uri: redirectUri,
+    });
+
+    // ── Verify the ID token ──────────────────────
     const ticket = await googleClient.verifyIdToken({
-      idToken:  credential,
+      idToken:  tokens.id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
@@ -48,23 +63,25 @@ router.post("/google", async (req, res) => {
     const { email, name, sub: googleId } = payload;
 
     if (!email) {
-      return res.status(400).json({ success: false, message: "Could not get email from Google!" });
+      return res.status(400).json({
+        success: false,
+        message: "Could not get email from Google account!"
+      });
     }
 
+    // ── Find or create user ───────────────────────
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      // New user — create automatically, no password needed
       user = await prisma.user.create({
         data: {
           name,
           email,
-          password: await bcrypt.hash(googleId, 12), // unusable placeholder
+          password: await bcrypt.hash(googleId, 12),
           googleId,
         }
       });
     } else if (!user.googleId) {
-      // Existing email/password account — link Google to it
       user = await prisma.user.update({
         where: { id: user.id },
         data:  { googleId }
@@ -87,8 +104,11 @@ router.post("/google", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Google auth error:", err.message);
-    res.status(401).json({ success: false, message: "Google sign-in failed. Please try again." });
+    console.error("Google callback error:", err.message);
+    res.status(401).json({
+      success: false,
+      message: "Google sign-in failed. Please try again."
+    });
   }
 });
 
@@ -118,7 +138,10 @@ router.post("/register", [
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return res.status(400).json({ success: false, message: "Email already registered. Please login!" });
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered. Please login!"
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -161,7 +184,6 @@ router.post("/login", [
       return res.status(401).json({ success: false, message: "Invalid email or password!" });
     }
 
-    // Check lockout
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       const minutesLeft = Math.ceil((user.lockedUntil - new Date()) / 60000);
       return res.status(429).json({
@@ -170,7 +192,6 @@ router.post("/login", [
       });
     }
 
-    // Google-only accounts can't login with password
     if (user.googleId && !user.password) {
       return res.status(400).json({
         success: false,
@@ -185,7 +206,7 @@ router.post("/login", [
       const updateData = { failedLoginAttempts: failedAttempts };
 
       if (failedAttempts >= 5) {
-        updateData.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+        updateData.lockedUntil         = new Date(Date.now() + 15 * 60 * 1000);
         updateData.failedLoginAttempts = 0;
         await prisma.user.update({ where: { id: user.id }, data: updateData });
         return res.status(429).json({
@@ -270,8 +291,7 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
-
-    if (!user) return res.json({ success: true }); // silent — prevent enumeration
+    if (!user) return res.json({ success: true });
 
     const resetToken   = crypto.randomBytes(32).toString("hex");
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
@@ -283,8 +303,6 @@ router.post("/forgot-password", async (req, res) => {
 
     const resetLink = `${process.env.FRONTEND_URL}/pages/reset-password.html?token=${resetToken}`;
     console.log(`[DEV] Password reset link for ${email}: ${resetLink}`);
-
-    // TODO: wire up Resend email here when ready
 
     res.json({ success: true });
 
@@ -317,7 +335,10 @@ router.post("/reset-password", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({ success: false, message: "Reset link is invalid or has expired." });
+      return res.status(400).json({
+        success: false,
+        message: "Reset link is invalid or has expired."
+      });
     }
 
     await prisma.user.update({

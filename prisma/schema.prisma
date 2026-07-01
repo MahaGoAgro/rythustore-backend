@@ -16,6 +16,11 @@ model User {
     phone     String?
     password  String
     role      String      @default("CUSTOMER")
+    googleId  String?     @unique
+    failedLoginAttempts Int @default(0)
+    lockedUntil  DateTime?
+    passwordResetToken  String?
+    passwordResetExpires   DateTime?
     createdAt DateTime    @default(now())
     cart      CartItem[]
     orders    Order[]   
@@ -73,6 +78,8 @@ model Order {
     userId    String
     status    OrderStatus @default(PLACED)
     totalAmount Float
+    paymentId    String?
+    paymentMode  String    @default("COD")
     address     String
     createdAt  DateTime   @default(now())
     user       User       @relation(fields:[userId],references: [id])

@@ -51,6 +51,7 @@ app.use("/api/cart",     require("./routes/cart"));
 app.use("/api/orders",   require("./routes/orders"));
 app.use("/api/addresses", require("./routes/addresses"));
 app.use("/api/weather", require("./routes/weather"));
+app.use("/api/payments", require("./routes/payments"));
 // ── Health Check ───────────────────────────────────
 app.get("/", (req, res) => {
   res.json({
