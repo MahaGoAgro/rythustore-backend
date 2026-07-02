@@ -52,6 +52,11 @@ model Product {
     createdAt   DateTime    @default(now())
     cartItems   CartItem[]
     orderItems  OrderItem[]
+
+    @@index([category])
+    @@index([createdAt])
+    @@index([isBestseller])
+    @@index([flashSaleEndsAt])
     
 }
 
@@ -114,5 +119,15 @@ model Address {
     pincode     String
 
     user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CropPrice {
+    id            String  @id @default(uuid())
+    name          String  @unique
+    price         Float
+    previousPrice Float?
+    unit          String  @default("quintal")
+    change        Float   @default(0)
+    updatedAt     DateTime @updatedAt
 }
 
