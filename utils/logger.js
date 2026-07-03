@@ -1,10 +1,6 @@
 // ── Logger utility ─────────────────────────────
-// Simple structured logger that outputs to console
-// Railway captures all console output in Deploy Logs
-
 const log = {
 
-  // General info
   info: (event, data = {}) => {
     console.log(JSON.stringify({
       level:     "INFO",
@@ -14,7 +10,6 @@ const log = {
     }));
   },
 
-  // Security events (login failures, lockouts, etc)
   security: (event, data = {}) => {
     console.warn(JSON.stringify({
       level:     "SECURITY",
@@ -24,7 +19,6 @@ const log = {
     }));
   },
 
-  // Errors
   error: (event, err, data = {}) => {
     console.error(JSON.stringify({
       level:     "ERROR",
@@ -35,7 +29,6 @@ const log = {
     }));
   },
 
-  // Payment events
   payment: (event, data = {}) => {
     console.log(JSON.stringify({
       level:     "PAYMENT",
@@ -45,7 +38,6 @@ const log = {
     }));
   },
 
-  // Admin actions
   admin: (event, data = {}) => {
     console.log(JSON.stringify({
       level:     "ADMIN",
