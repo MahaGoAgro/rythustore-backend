@@ -1,130 +1,146 @@
 const express = require("express");
-const validator = require("validator");
-const prisma = require("../config/db");
+const prisma  = require("../config/db");
 const { protect, adminOnly } = require("../middleware/auth");
+const log = require("../utils/logger");
 
 const router = express.Router();
 
 router.use(protect);
 
 // ── GET /api/orders ────────────────────────────
-// Get my all orders
+// Customer: get own orders
+// Admin: get ALL orders
 router.get("/", async (req, res) => {
   try {
+    const isAdmin = req.user.role === "ADMIN";
+
     const orders = await prisma.order.findMany({
-      where: { userId: req.user.id },
-      include: { items: { include: { product: true } } },
-      orderBy: { createdAt: "desc" }
+      where: isAdmin ? {} : { userId: req.user.id },
+      include: {
+        items: { include: { product: true } },
+        user:  isAdmin
+          ? { select: { id: true, name: true, email: true, phone: true } }
+          : false,
+      },
+      orderBy: { createdAt: "desc" },
     });
 
     res.json({ success: true, count: orders.length, orders });
-
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // ── GET /api/orders/:id ────────────────────────
-// Get single order details
 router.get("/:id", async (req, res) => {
   try {
-    const order = await prisma.order.findFirst({
-      where: { id: req.params.id, userId: req.user.id },
-      include: { items: { include: { product: true } } }
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: { include: { product: true } },
+        user:  { select: { id: true, name: true, email: true } },
+      },
     });
 
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found!" });
     }
 
-    res.json({ success: true, order });
+    // Customers can only see their own orders
+    if (req.user.role !== "ADMIN" && order.userId !== req.user.id) {
+      return res.status(403).json({ success: false, message: "Access denied!" });
+    }
 
+    res.json({ success: true, order });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // ── POST /api/orders ───────────────────────────
-// Place order from cart
+// Place a COD order
 router.post("/", async (req, res) => {
   try {
-    // ── Sanitize address ──────────────────────────
-    const address = validator.escape(req.body.address?.trim() || "");
+    const { address } = req.body;
 
     if (!address) {
       return res.status(400).json({ success: false, message: "Delivery address is required!" });
     }
 
-    // 1. Get user's cart
     const cartItems = await prisma.cartItem.findMany({
-      where: { userId: req.user.id },
-      include: { product: true }
+      where:   { userId: req.user.id },
+      include: { product: true },
     });
 
-    // 2. Check cart is not empty
     if (cartItems.length === 0) {
       return res.status(400).json({ success: false, message: "Your cart is empty!" });
     }
 
-    // 3. Calculate total amount
-    const totalAmount = cartItems.reduce((sum, item) => {
-      return sum + (item.product.price * item.quantity);
-    }, 0);
+    const totalAmount = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
 
-    // 4. Create order + clear cart in one transaction
-    const order = await prisma.$transaction(async (tx) => {
-
-      const newOrder = await tx.order.create({
-        data: {
-          userId: req.user.id,
-          address,
-          totalAmount,
-          items: {
-            create: cartItems.map((item) => ({
-              productId: item.productId,
-              quantity:  item.quantity,
-              price:     item.product.price
-            }))
-          }
+    const order = await prisma.order.create({
+      data: {
+        userId:      req.user.id,
+        address,
+        totalAmount,
+        status:      "PLACED",
+        paymentMode: "COD",
+        items: {
+          create: cartItems.map(item => ({
+            productId: item.productId,
+            quantity:  item.quantity,
+            price:     item.product.price,
+          })),
         },
-        include: { items: { include: { product: true } } }
-      });
-
-      await tx.cartItem.deleteMany({ where: { userId: req.user.id } });
-
-      return newOrder;
+      },
+      include: { items: { include: { product: true } } },
     });
 
-    res.status(201).json({
-      success: true,
-      message: "Order placed successfully!",
-      order
-    });
+    // Clear cart after order placed
+    await prisma.cartItem.deleteMany({ where: { userId: req.user.id } });
 
+    res.status(201).json({ success: true, message: "Order placed successfully!", order });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // ── PUT /api/orders/:id/status ─────────────────
-// Update order status (Admin)
+// Admin only — update order status
 router.put("/:id/status", adminOnly, async (req, res) => {
   try {
     const { status } = req.body;
 
     const validStatuses = ["PLACED", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"];
-
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, message: "Invalid status!" });
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+      });
     }
 
-    const order = await prisma.order.update({
+    const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found!" });
+    }
+
+    const updated = await prisma.order.update({
       where: { id: req.params.id },
-      data: { status }
+      data:  { status },
+      include: {
+        items: { include: { product: true } },
+        user:  { select: { id: true, name: true, email: true } },
+      },
     });
 
-    res.json({ success: true, message: "Order status updated!", order });
+    log.admin("ORDER_STATUS_UPDATED", {
+      orderId:   req.params.id,
+      oldStatus: order.status,
+      newStatus: status,
+      adminId:   req.user.id,
+    });
 
+    res.json({ success: true, message: `Order status updated to ${status}!`, order: updated });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

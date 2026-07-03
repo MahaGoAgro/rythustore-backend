@@ -1,86 +1,106 @@
-const express   = require("express");
-const cors      = require("cors");
-const dotenv    = require("dotenv");
-const helmet    = require("helmet");
-const rateLimit = require("express-rate-limit");
-
-dotenv.config();
+const express     = require("express");
+const helmet      = require("helmet");
+const cors        = require("cors");
+const rateLimit   = require("express-rate-limit");
+const log         = require("./utils/logger");
 
 const app = express();
-app.set("trust proxy",1);
 
-// ── Security Middleware ─────────────────────────
-app.use(helmet());          // secure HTTP headers
+// ── Trust proxy (Railway sits behind one) ──────
+app.set("trust proxy", 1);
 
-// ── CORS — only allow your own frontend ─────────
+// ── Security headers ───────────────────────────
+app.use(helmet());
+
+// ── CORS ──────────────────────────────────────
 app.use(cors({
   origin: process.env.FRONTEND_URL || "*",
   credentials: true,
 }));
 
-app.use(express.json({ limit: "10mb" })); // allow base64 images but cap size
-app.use(express.urlencoded({ extended: true }));
+// ── Body parser with size limit ────────────────
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true, limit: "5mb" }));
 
-// ── Rate Limiting — General API ─────────────────
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,                 // max 100 requests per IP per window
-  message: {
-    success: false,
-    message: "Too many requests! Please try again later."
+// ── Request logger ─────────────────────────────
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api")) {
+    log.info("REQUEST", {
+      method: req.method,
+      path:   req.path,
+      ip:     req.ip,
+    });
   }
+  next();
 });
-app.use("/api", generalLimiter);
 
-// ── Rate Limiting — Strict for Login/Register ───
+// ── Rate limiters ──────────────────────────────
+
+// Auth routes — strict (5 requests per 15 min)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,                   // only 5 attempts per IP
-  message: {
-    success: false,
-    message: "Too many login attempts! Please try again after 15 minutes."
-  }
+  windowMs: 15 * 60 * 1000,
+  max:      5,
+  message:  { success: false, message: "Too many attempts. Please try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders:   false,
 });
-app.use("/api/auth/login",    authLimiter);
-app.use("/api/auth/register", authLimiter);
 
-// ── Routes ───────────────────────────────────────
-app.use("/api/auth",     require("./routes/auth"));
-app.use("/api/products", require("./routes/products"));
-app.use("/api/cart",     require("./routes/cart"));
-app.use("/api/orders",   require("./routes/orders"));
-app.use("/api/addresses", require("./routes/addresses"));
-app.use("/api/weather", require("./routes/weather"));
-app.use("/api/payments", require("./routes/payments"));
- app.use("/api/upload", require("./routes/upload"));
-// ── Health Check ───────────────────────────────────
+// General API routes — moderate (100 requests per 15 min)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max:      100,
+  message:  { success: false, message: "Too many requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
+
+// Upload route — very strict (10 per hour, images are expensive)
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max:      10,
+  message:  { success: false, message: "Too many uploads. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
+
+// Payment route — strict (20 per hour)
+const paymentLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max:      20,
+  message:  { success: false, message: "Too many payment attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
+
+// ── Routes ─────────────────────────────────────
+app.use("/api/auth",        authLimiter,    require("./routes/auth"));
+app.use("/api/products",    apiLimiter,     require("./routes/products"));
+app.use("/api/cart",        apiLimiter,     require("./routes/cart"));
+app.use("/api/orders",      apiLimiter,     require("./routes/orders"));
+app.use("/api/addresses",   apiLimiter,     require("./routes/addresses"));
+app.use("/api/weather",     apiLimiter,     require("./routes/weather"));
+app.use("/api/upload",      uploadLimiter,  require("./routes/upload"));
+app.use("/api/payments",    paymentLimiter, require("./routes/payments"));
+app.use("/api/crop-prices", apiLimiter,     require("./routes/crop-prices"));
+
+// ── Health check ───────────────────────────────
 app.get("/", (req, res) => {
   res.json({
     message: "🌾 RythuStore API is running!",
-    status: "OK"
+    status:  "OK",
+    version: "1.0.0",
   });
 });
 
-// ── 404 Handler ────────────────────────────────────
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found!"
-  });
-});
-
-// ── Global Error Handler ───────────────────────────
+// ── Global error handler ───────────────────────
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    success: false,
-    message: process.env.NODE_ENV === "production"
-      ? "Something went wrong!"
-      : err.message
-  });
+  log.error("UNHANDLED_ERROR", err, { path: req.path });
+  res.status(500).json({ success: false, message: "Something went wrong!" });
 });
 
+// ── Start server ───────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
+  log.info("SERVER_START", { port: PORT, env: process.env.NODE_ENV });
   console.log(`🌾 RythuStore server started on http://localhost:${PORT}`);
 });
