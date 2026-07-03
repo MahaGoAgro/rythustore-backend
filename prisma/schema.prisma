@@ -24,7 +24,8 @@ model User {
     createdAt DateTime    @default(now())
     cart      CartItem[]
     orders    Order[]   
-    addresses Address[]  
+    addresses Address[] 
+    tokenVersion Int @default(0)
 }
 
 enum Role {
@@ -89,7 +90,7 @@ model Order {
     createdAt  DateTime   @default(now())
     user       User       @relation(fields:[userId],references: [id])
     items      OrderItem[]
-    tokenVersion Int @default(0)
+    
 }
 
 enum OrderStatus {
