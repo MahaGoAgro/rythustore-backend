@@ -51,7 +51,7 @@ const protect = async (req, res, next) => {
     // ── Token version check ──────────────────────
     // If token version in JWT doesn't match database,
     // the token has been invalidated (logout / password reset)
-    if (decoded.tokenVersion !== user.tokenVersion) {
+    if ((decoded.tokenVersion )!== user.tokenVersion) {
       return res.status(401).json({
         success: false,
         message: "Session invalidated. Please login again!"
