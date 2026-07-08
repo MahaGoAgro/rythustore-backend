@@ -149,3 +149,17 @@ model Review {
     @@index([productId])
 }
 
+model Testimonial {
+    id              String  @id @default(uuid())
+    name            String
+    location        String
+    message         String
+    rating          Int          @default(5)
+    crop            String?
+    imageUrl        String?
+    isActive        Boolean      @default(true)
+    createdAt       DateTime     @default(now())
+}
+
+
+

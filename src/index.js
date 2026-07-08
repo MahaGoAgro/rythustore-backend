@@ -89,7 +89,7 @@ app.use("/api/payments",    paymentLimiter, require("./routes/payments"));
 app.use("/api/crop-prices", apiLimiter,     require("./routes/crop-prices"));
 app.use("/api/reviews",     reviewLimiter,  require("./routes/reviews"));
 app.use("/api/news",        apiLimiter,     require("./routes/news"));
-
+app.use("/api/testimonials", require("./routes/testimonials"));
 // ── Health check ───────────────────────────────
 app.get("/", (req, res) => {
   res.json({
