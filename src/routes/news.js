@@ -1,43 +1,57 @@
 const express = require("express");
 const router  = express.Router();
 
-// Cache news for 2 hours to avoid hammering sources
+// Cache news for 2 hours
 let newsCache = { data: null, fetchedAt: null };
-const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+const CACHE_TTL = 2 * 60 * 60 * 1000;
 
-// ── Free agriculture news sources (RSS feeds) ──
-// These are publicly available RSS feeds, no API key needed
+// ── Telugu Agriculture News RSS Sources ────────
+// Focus on AP/Telangana farmers in Telugu language
 const RSS_SOURCES = [
   {
-    url:    "https://www.thehindu.com/sci-tech/agriculture/feeder/default.rss",
-    source: "The Hindu"
+    url:    "https://www.sakshi.com/rss/agriculture",
+    source: "సాక్షి",
+    lang:   "te"
   },
   {
-    url:    "https://krishijagran.com/feed/",
-    source: "Krishi Jagran"
+    url:    "https://www.eenadu.net/rss/agriculture",
+    source: "ఈనాడు",
+    lang:   "te"
   },
   {
-    url:    "https://www.downtoearth.org.in/rss/agriculture",
-    source: "Down To Earth"
+    url:    "https://telugu.oneindia.com/rss/agriculture.xml",
+    source: "వన్‌ఇండియా తెలుగు",
+    lang:   "te"
+  },
+  {
+    url:    "https://www.tv5news.in/rss/agriculture",
+    source: "TV5 న్యూస్",
+    lang:   "te"
   },
 ];
 
-// ── Parse RSS XML manually (no external library) ──
+// ── Parse RSS XML ──────────────────────────────
 const parseRSS = (xml, sourceName) => {
   const items = [];
   const itemMatches = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
 
   itemMatches.slice(0, 4).forEach(item => {
-    const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) ||
-                   item.match(/<title>(.*?)<\/title>/))?.[1]?.trim();
-    const link  = (item.match(/<link>(.*?)<\/link>/) ||
-                   item.match(/<guid>(.*?)<\/guid>/))?.[1]?.trim();
-    const desc  = (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) ||
-                   item.match(/<description>(.*?)<\/description>/))?.[1]
-                   ?.replace(/<[^>]+>/g, "")?.trim()?.slice(0, 150);
+    const title = (
+      item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) ||
+      item.match(/<title>(.*?)<\/title>/)
+    )?.[1]?.trim();
+
+    const link = (
+      item.match(/<link>(.*?)<\/link>/) ||
+      item.match(/<guid>(.*?)<\/guid>/)
+    )?.[1]?.trim();
+
+    const desc = (
+      item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) ||
+      item.match(/<description>(.*?)<\/description>/)
+    )?.[1]?.replace(/<[^>]+>/g, "")?.trim()?.slice(0, 150);
+
     const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim();
-    const img   = item.match(/<media:thumbnail[^>]+url="([^"]+)"/)?.[1] ||
-                  item.match(/<enclosure[^>]+url="([^"]+)"/)?.[1] || null;
 
     if (title && link) {
       items.push({
@@ -45,7 +59,7 @@ const parseRSS = (xml, sourceName) => {
         description: desc || "",
         url:         link,
         source:      sourceName,
-        imageUrl:    img,
+        imageUrl:    null,
         publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
       });
     }
@@ -64,88 +78,89 @@ router.get("/", async (req, res) => {
 
     const articles = [];
 
-    // Fetch from all RSS sources in parallel
+    // Fetch from Telugu RSS sources in parallel
     const results = await Promise.allSettled(
       RSS_SOURCES.map(async ({ url, source }) => {
         const controller = new AbortController();
-        const timeout    = setTimeout(() => controller.abort(), 5000); // 5s timeout
-
+        const timeout    = setTimeout(() => controller.abort(), 5000);
         try {
           const response = await fetch(url, {
             signal:  controller.signal,
-            headers: { "User-Agent": "RythuStore/1.0 (agriculture news aggregator)" }
+            headers: { "User-Agent": "RythuStore/1.0 (Telugu agriculture news)" }
           });
-          const xml  = await response.text();
-          const items = parseRSS(xml, source);
-          return items;
+          const xml = await response.text();
+          return parseRSS(xml, source);
         } finally {
           clearTimeout(timeout);
         }
       })
     );
 
-    // Collect successful results
     results.forEach(result => {
       if (result.status === "fulfilled") {
         articles.push(...result.value);
       }
     });
 
-    // Sort by date, newest first
+    // Sort newest first
     articles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-
-    // Take top 8
     const top8 = articles.slice(0, 8);
 
-    // If no articles fetched (all sources failed), return fallback
     if (top8.length === 0) {
-      return res.json({
-        success:  true,
-        articles: getFallbackNews(),
-        cached:   false,
-      });
+      return res.json({ success: true, articles: getTeluguFallbackNews() });
     }
 
-    // Update cache
     newsCache = { data: top8, fetchedAt: Date.now() };
-
     res.json({ success: true, articles: top8 });
 
   } catch (err) {
     console.error("News fetch error:", err.message);
-
-    // Return cached even if stale, or fallback
     if (newsCache.data) {
       return res.json({ success: true, articles: newsCache.data, cached: true });
     }
-
-    res.json({ success: true, articles: getFallbackNews() });
+    res.json({ success: true, articles: getTeluguFallbackNews() });
   }
 });
 
-// ── Fallback news (shown if all sources fail) ──
-const getFallbackNews = () => [
+// ── Telugu fallback news (shown if all RSS sources fail) ──
+const getTeluguFallbackNews = () => [
   {
-    title:       "Government raises MSP for Kharif crops — farmers to benefit",
-    description: "The central government has announced an increase in Minimum Support Price for major kharif crops including paddy, cotton and maize.",
-    url:         "https://krishijagran.com",
-    source:      "Krishi Jagran",
+    title:       "ఖరీఫ్ పంటలకు కనీస మద్దతు ధర పెంపు — రైతులకు లాభం",
+    description: "కేంద్ర ప్రభుత్వం ప్రధాన ఖరీఫ్ పంటలైన వరి, పత్తి, మొక్కజొన్నలకు కనీస మద్దతు ధరను పెంచింది.",
+    url:         "https://www.sakshi.com",
+    source:      "సాక్షి",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
   },
   {
-    title:       "New high-yield cotton variety released for Telangana farmers",
-    description: "ICAR has released a new cotton variety suitable for the black soil regions of Andhra Pradesh and Telangana with 30% higher yield.",
-    url:         "https://www.thehindu.com",
-    source:      "The Hindu",
+    title:       "తెలంగాణలో కొత్త అధిక దిగుబడి పత్తి రకం విడుదల",
+    description: "ICAR తెలంగాణ మరియు ఆంధ్రప్రదేశ్ నల్ల నేల ప్రాంతాలకు అనుకూలమైన కొత్త పత్తి రకాన్ని విడుదల చేసింది.",
+    url:         "https://www.eenadu.net",
+    source:      "ఈనాడు",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
   },
   {
-    title:       "Organic farming adoption rises in Krishna and Guntur districts",
-    description: "Farmers in Krishna and Guntur districts are increasingly adopting organic farming methods, boosting income and soil health.",
-    url:         "https://www.downtoearth.org.in",
-    source:      "Down To Earth",
+    title:       "కృష్ణా, గుంటూరు జిల్లాల్లో సేంద్రీయ వ్యవసాయం పెరుగుతోంది",
+    description: "కృష్ణా మరియు గుంటూరు జిల్లాల రైతులు సేంద్రీయ వ్యవసాయ పద్ధతులను అవలంబిస్తున్నారు.",
+    url:         "https://www.sakshi.com",
+    source:      "సాక్షి",
+    imageUrl:    null,
+    publishedAt: new Date().toISOString(),
+  },
+  {
+    title:       "ఆంధ్రప్రదేశ్‌లో వర్షాల వల్ల పంట నష్టం — ప్రభుత్వం సహాయం",
+    description: "భారీ వర్షాల వల్ల పంట నష్టపోయిన రైతులకు ఆంధ్రప్రదేశ్ ప్రభుత్వం తక్షణ సహాయం అందిస్తుంది.",
+    url:         "https://www.tv5news.in",
+    source:      "TV5 న్యూస్",
+    imageUrl:    null,
+    publishedAt: new Date().toISOString(),
+  },
+  {
+    title:       "రబీ సీజన్‌కు విత్తనాలు, ఎరువుల సరఫరా మెరుగుపడింది",
+    description: "వచ్చే రబీ సీజన్‌కు అవసరమైన విత్తనాలు మరియు ఎరువుల సరఫరా చేయడానికి ప్రభుత్వం సిద్ధంగా ఉంది.",
+    url:         "https://www.eenadu.net",
+    source:      "ఈనాడు",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
   },
