@@ -41,10 +41,18 @@ const parseRSS = (xml, sourceName) => {
       item.match(/<title>(.*?)<\/title>/)
     )?.[1]?.trim();
 
-    const link = (
-      item.match(/<link>(.*?)<\/link>/) ||
-      item.match(/<guid>(.*?)<\/guid>/)
-    )?.[1]?.trim();
+    // Try multiple URL fields in priority order
+    // guid is often the actual article URL in Telugu RSS feeds
+    const guid = item.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1]?.trim();
+    const linkRaw = item.match(/<link>(.*?)<\/link>/)?.[1]?.trim() ||
+                    item.match(/<link\s+href="([^"]+)"/)?.[1]?.trim();
+
+    // Use guid if it looks like a full article URL, otherwise use link
+    const link = (guid && guid.startsWith("http") && guid.length > 40)
+      ? guid
+      : (linkRaw && linkRaw.startsWith("http") && linkRaw.length > 40)
+        ? linkRaw
+        : null;
 
     const desc = (
       item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) ||
@@ -127,7 +135,7 @@ const getTeluguFallbackNews = () => [
   {
     title:       "ఖరీఫ్ పంటలకు కనీస మద్దతు ధర పెంపు — రైతులకు లాభం",
     description: "కేంద్ర ప్రభుత్వం ప్రధాన ఖరీఫ్ పంటలైన వరి, పత్తి, మొక్కజొన్నలకు కనీస మద్దతు ధరను పెంచింది.",
-    url:         "https://www.sakshi.com",
+    url:         "https://www.sakshi.com/news/agriculture",
     source:      "సాక్షి",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
@@ -135,7 +143,7 @@ const getTeluguFallbackNews = () => [
   {
     title:       "తెలంగాణలో కొత్త అధిక దిగుబడి పత్తి రకం విడుదల",
     description: "ICAR తెలంగాణ మరియు ఆంధ్రప్రదేశ్ నల్ల నేల ప్రాంతాలకు అనుకూలమైన కొత్త పత్తి రకాన్ని విడుదల చేసింది.",
-    url:         "https://www.eenadu.net",
+    url:         "https://www.eenadu.net/telangana/district-news",
     source:      "ఈనాడు",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
@@ -143,24 +151,24 @@ const getTeluguFallbackNews = () => [
   {
     title:       "కృష్ణా, గుంటూరు జిల్లాల్లో సేంద్రీయ వ్యవసాయం పెరుగుతోంది",
     description: "కృష్ణా మరియు గుంటూరు జిల్లాల రైతులు సేంద్రీయ వ్యవసాయ పద్ధతులను అవలంబిస్తున్నారు.",
-    url:         "https://www.sakshi.com",
+    url:         "https://www.sakshi.com/news/andhra-pradesh",
     source:      "సాక్షి",
-    imageUrl:    null,
-    publishedAt: new Date().toISOString(),
-  },
-  {
-    title:       "ఆంధ్రప్రదేశ్‌లో వర్షాల వల్ల పంట నష్టం — ప్రభుత్వం సహాయం",
-    description: "భారీ వర్షాల వల్ల పంట నష్టపోయిన రైతులకు ఆంధ్రప్రదేశ్ ప్రభుత్వం తక్షణ సహాయం అందిస్తుంది.",
-    url:         "https://www.tv5news.in",
-    source:      "TV5 న్యూస్",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
   },
   {
     title:       "రబీ సీజన్‌కు విత్తనాలు, ఎరువుల సరఫరా మెరుగుపడింది",
     description: "వచ్చే రబీ సీజన్‌కు అవసరమైన విత్తనాలు మరియు ఎరువుల సరఫరా చేయడానికి ప్రభుత్వం సిద్ధంగా ఉంది.",
-    url:         "https://www.eenadu.net",
+    url:         "https://www.eenadu.net/andhra-pradesh",
     source:      "ఈనాడు",
+    imageUrl:    null,
+    publishedAt: new Date().toISOString(),
+  },
+  {
+    title:       "ఆంధ్రప్రదేశ్ రైతులకు పంట బీమా పరిహారం మంజూరు",
+    description: "ప్రకృతి వైపరీత్యాల వల్ల పంట నష్టపోయిన రైతులకు పంట బీమా పరిహారం అందించడం ప్రారంభించింది.",
+    url:         "https://www.tv5news.in/andhra-pradesh",
+    source:      "TV5 న్యూస్",
     imageUrl:    null,
     publishedAt: new Date().toISOString(),
   },
