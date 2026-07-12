@@ -36,41 +36,51 @@ router.get("/", async (req, res) => {
 // Add product to cart
 router.post("/add", async (req, res) => {
   try {
-    const { productId, quantity = 1 } = req.body;
+    const { productId, quantity = 1, variantId, variantSize } = req.body;  // ← add variantId, variantSize
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "Product ID is required!" });
     }
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) return res.status(404).json({ success: false, message: "Product not found!" });
 
-    if (!product) {
-      return res.status(404).json({ success: false, message: "Product not found!" });
+    // If variant selected, validate it exists
+    if (variantId) {
+      const variant = await prisma.productVariant.findUnique({ where: { id: variantId } });
+      if (!variant) return res.status(404).json({ success: false, message: "Variant not found!" });
     }
 
-    const existing = await prisma.cartItem.findUnique({
+    // Include variantId in unique check so same product different variants = different cart items
+    const existing = await prisma.cartItem.findFirst({
       where: {
-        userId_productId: { userId: req.user.id, productId }
+        userId:    req.user.id,
+        productId,
+        variantId: variantId || null,
       }
     });
 
     let cartItem;
-
     if (existing) {
       cartItem = await prisma.cartItem.update({
-        where: { id: existing.id },
-        data: { quantity: existing.quantity + quantity },
-        include: { product: true }
+        where:   { id: existing.id },
+        data:    { quantity: existing.quantity + quantity },
+        include: { product: true },
       });
     } else {
       cartItem = await prisma.cartItem.create({
-        data: { userId: req.user.id, productId, quantity },
-        include: { product: true }
+        data: {
+          userId:      req.user.id,
+          productId,
+          quantity,
+          variantId:   variantId   || null,
+          variantSize: variantSize || null,
+        },
+        include: { product: true },
       });
     }
 
     res.json({ success: true, message: "Added to cart!", cartItem });
-
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

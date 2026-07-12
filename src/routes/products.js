@@ -8,7 +8,11 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const { category, search, flashSale, bestseller, minPrice, maxPrice, sort } = req.query;
-
+     const products = await prisma.product.findMany({
+     where,
+     orderBy,
+     include: { variants: { orderBy: { price: "asc" } } }  // ← add this
+   });
     const where = { inStock: true };
 
     if (category)           where.category      = category.toUpperCase();
@@ -47,6 +51,10 @@ router.get("/", async (req, res) => {
 
 // ── GET /api/products/:id ──────────────────────
 router.get("/:id", async (req, res) => {
+   const product = await prisma.product.findUnique({
+     where: { id: req.params.id },
+     include: { variants: { orderBy: { price: "asc" } } }  // ← add this
+   });
   try {
     const product = await prisma.product.findUnique({ where: { id: req.params.id } });
     if (!product) return res.status(404).json({ success: false, message: "Product not found!" });
